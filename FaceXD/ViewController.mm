@@ -254,9 +254,7 @@
     self.arSession = [[ARSession alloc] init];
     ARFaceTrackingConfiguration *faceTracking = [[ARFaceTrackingConfiguration alloc] init];
     faceTracking.worldAlignment = self.alignmentSwitch.on ? ARWorldAlignmentCamera : ARWorldAlignmentGravity;
-    
-    XDDefaultModelParameterConfiguration *c = (XDDefaultModelParameterConfiguration *)self.parameterConfiguration;
-    c.frameInterval = 1.0 / 30.0;
+     
     if (@available(iOS 11.3, *)) {
         __block ARVideoFormat *format = nil;
         [[ARFaceTrackingConfiguration supportedVideoFormats] enumerateObjectsUsingBlock:^(ARVideoFormat * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {

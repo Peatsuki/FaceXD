@@ -10,12 +10,18 @@
 #import "XDDefaultModelParameterConfiguration.h"
 #import "XDControlValueLinear.h"
 
-@interface XDDefaultModelParameterConfiguration ()
+@interface XDDefaultModelParameterConfiguration () {
+    CGFloat _Kp;
+    CGFloat _Kd;
+    CGFloat _Ki;
+}
 @property (nonatomic, strong) XDControlValueLinear *eyeLinearX;
 @property (nonatomic, strong) XDControlValueLinear *eyeLinearY;
 
 @property (nonatomic, assign) CFTimeInterval lastUpdateTime;
-@property (nonatomic, copy) XDModelParameter *lastParameter;
+@property (nonatomic, copy) XDModelParameter *pidControlValue;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *lastInputMap;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *lastSumMap;
 @end
 
 @implementation XDDefaultModelParameterConfiguration
@@ -27,9 +33,12 @@
                                                             outputMin:[self.model paramMinValue:LAppParamEyeBallX].doubleValue inputMax:45 inputMin:-45];
         _eyeLinearY = [[XDControlValueLinear alloc] initWithOutputMax:[self.model paramMaxValue:LAppParamEyeBallY].doubleValue
                                                             outputMin:[self.model paramMinValue:LAppParamEyeBallY].doubleValue inputMax:45 inputMin:-45];
-        _interpolation = YES;
-        _frameInterval = 1.0 / 30.0;
-        _lastUpdateTime = -1;
+        _smooth = YES;
+        _Kp = 1;
+        _Kd = 0;
+        _Ki = 0;
+        _lastInputMap = [NSMutableDictionary dictionary];
+        _lastSumMap = [NSMutableDictionary dictionary];
     }
     return self;
 }
@@ -54,6 +63,17 @@
     return from + (to - from) * percent;
 }
 
+- (CGFloat)pid:(CGFloat)input key:(NSString *)key {
+    NSNumber *num = self.lastInputMap[key];
+    NSNumber *s = self.lastSumMap[key];
+    CGFloat sum = s.floatValue + input;
+    self.lastSumMap[key] = @(sum);
+    CGFloat u = _Kp * input + _Kd * (input - num.floatValue) + _Ki * (sum);
+    num = @(input);
+    self.lastInputMap[key] = num;
+    return u;
+}
+
 #pragma mark - Public
 - (void)updateParameterWithFaceAnchor:(ARFaceAnchor *)anchor
                              faceNode:(SCNNode *)faceNode
@@ -63,7 +83,6 @@
         return;
     }
     
-    self.lastParameter = self.parameter;
     if (self.worldAlignment == ARWorldAlignmentCamera) {
         self.parameter.headPitch = @(-(180 / M_PI) * faceNode.eulerAngles.x * 1.3);
         self.parameter.headYaw = @((180 / M_PI) * faceNode.eulerAngles.y);
@@ -95,8 +114,8 @@
     self.parameter.bodyAngleY = @(self.parameter.headPitch.floatValue / 2);
     self.parameter.bodyAngleZ = @(self.parameter.headRoll.floatValue / 2);
 
-    self.parameter.eyeLOpen = @(1 - anchor.blendShapes[ARBlendShapeLocationEyeBlinkLeft].floatValue * 1.3);
-    self.parameter.eyeROpen = @(1 - anchor.blendShapes[ARBlendShapeLocationEyeBlinkRight].floatValue * 1.3);
+    self.parameter.eyeLOpen = @(1 - anchor.blendShapes[ARBlendShapeLocationEyeBlinkLeft].floatValue);
+    self.parameter.eyeROpen = @(1 - anchor.blendShapes[ARBlendShapeLocationEyeBlinkRight].floatValue);
     self.parameter.eyeX = @([self.eyeLinearX calc:(180 / M_PI) * leftEyeNode.eulerAngles.y]);
     self.parameter.eyeY = @(-[self.eyeLinearY calc:(180 / M_PI) * leftEyeNode.eulerAngles.x]);
     self.parameter.mouthOpenY = @(anchor.blendShapes[ARBlendShapeLocationJawOpen].floatValue * 1.8);
@@ -120,28 +139,20 @@
         mouthForm = mouthForm - mouthFunnel;
     }
     self.parameter.mouthForm = @(mouthForm);
-    
-    self.lastUpdateTime = CACurrentMediaTime();
 }
 
 - (void)commit {
-    CGFloat persent = 1;
-    if (self.lastUpdateTime > 0) {
-        CFTimeInterval currentInterpolationTime = CACurrentMediaTime() - self.lastUpdateTime;
-        persent = currentInterpolationTime / self.frameInterval;
-        if (persent > 1) {
-            persent = 1;
-        }
-    }
     [self.parameterKeyMap enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull key, NSString * _Nonnull obj, BOOL * _Nonnull stop) {
         NSNumber *targetValue = [self.parameter valueForKey:obj];
-        NSNumber *fromValue = [self.lastParameter valueForKey:obj];
-        CGFloat v = self.interpolation ? [self interpolateFrom:fromValue.floatValue to:targetValue.floatValue percent:persent] : targetValue.floatValue;
-        if (v) {
+        NSNumber *pidControlValue = [self.pidControlValue valueForKey:obj];
+        CGFloat err = targetValue.floatValue - pidControlValue.floatValue;
+        CGFloat v = self.smooth ? [self pid:err key:obj] : targetValue.floatValue;
+        if (targetValue) {
             [self.model setParam:key forValue:@(v)];
         } else {
             [self.model setParam:key forValue:@(0)];
         }
+        [self.pidControlValue setValue:@(v) forKey:obj];
     }];
 }
 
