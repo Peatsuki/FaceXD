@@ -10,12 +10,15 @@
 #import "XDDefaultModelParameterConfiguration.h"
 #import "XDControlValueLinear.h"
 
-@interface XDDefaultModelParameterConfiguration ()
+@interface XDDefaultModelParameterConfiguration () {
+    CGFloat _kalmanQ;
+    CGFloat _kalmanR;
+}
 @property (nonatomic, strong) XDControlValueLinear *eyeLinearX;
 @property (nonatomic, strong) XDControlValueLinear *eyeLinearY;
 
-@property (nonatomic, assign) CFTimeInterval lastUpdateTime;
-@property (nonatomic, copy) XDModelParameter *lastParameter;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *lastKalmanX;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *lastKalmanP;
 @end
 
 @implementation XDDefaultModelParameterConfiguration
@@ -27,9 +30,10 @@
                                                             outputMin:[self.model paramMinValue:LAppParamEyeBallX].doubleValue inputMax:45 inputMin:-45];
         _eyeLinearY = [[XDControlValueLinear alloc] initWithOutputMax:[self.model paramMaxValue:LAppParamEyeBallY].doubleValue
                                                             outputMin:[self.model paramMinValue:LAppParamEyeBallY].doubleValue inputMax:45 inputMin:-45];
-        _interpolation = YES;
-        _frameInterval = 1.0 / 30.0;
-        _lastUpdateTime = -1;
+        _lastKalmanP = [NSMutableDictionary dictionary];
+        _lastKalmanX = [NSMutableDictionary dictionary];
+        _kalmanQ = 0.8;
+        _kalmanR = 15;
     }
     return self;
 }
@@ -54,6 +58,18 @@
     return from + (to - from) * percent;
 }
 
+- (CGFloat)kalman:(CGFloat)input key:(NSString *)aKey {
+    CGFloat XX = self.lastKalmanX[aKey] ? self.lastKalmanX[aKey].floatValue : 0;
+    CGFloat PP = self.lastKalmanP[aKey] ? self.lastKalmanP[aKey].floatValue : 1;
+    CGFloat K = PP / (PP + _kalmanR);
+    XX = XX + K * (input - XX);
+    PP = PP - K * PP + _kalmanQ;
+    self.lastKalmanX[aKey] = @(XX);
+    self.lastKalmanP[aKey] = @(PP);
+    return XX;
+    
+}
+
 #pragma mark - Public
 - (void)updateParameterWithFaceAnchor:(ARFaceAnchor *)anchor
                              faceNode:(SCNNode *)faceNode
@@ -63,7 +79,6 @@
         return;
     }
     
-    self.lastParameter = self.parameter;
     if (self.worldAlignment == ARWorldAlignmentCamera) {
         self.parameter.headPitch = @(-(180 / M_PI) * faceNode.eulerAngles.x * 1.3);
         self.parameter.headYaw = @((180 / M_PI) * faceNode.eulerAngles.y);
@@ -121,23 +136,16 @@
     }
     self.parameter.mouthForm = @(mouthForm);
     
-    self.lastUpdateTime = CACurrentMediaTime();
 }
 
 - (void)commit {
-    CGFloat persent = 1;
-    if (self.lastUpdateTime > 0) {
-        CFTimeInterval currentInterpolationTime = CACurrentMediaTime() - self.lastUpdateTime;
-        persent = currentInterpolationTime / self.frameInterval;
-        if (persent > 1) {
-            persent = 1;
-        }
-    }
     [self.parameterKeyMap enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull key, NSString * _Nonnull obj, BOOL * _Nonnull stop) {
         NSNumber *targetValue = [self.parameter valueForKey:obj];
-        NSNumber *fromValue = [self.lastParameter valueForKey:obj];
-        CGFloat v = self.interpolation ? [self interpolateFrom:fromValue.floatValue to:targetValue.floatValue percent:persent] : targetValue.floatValue;
-        if (v) {
+        if (targetValue == nil) {
+            targetValue = @(0);
+        }
+        CGFloat v = [self kalman:targetValue.floatValue key:obj];
+        if (targetValue) {
             [self.model setParam:key forValue:@(v)];
         } else {
             [self.model setParam:key forValue:@(0)];

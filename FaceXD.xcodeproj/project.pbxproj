@@ -990,7 +990,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.hakura.FaceXD;
 				PRODUCT_NAME = FaceXD;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/**";
+				USER_HEADER_SEARCH_PATHS = "";
 			};
 			name = Debug;
 		};
@@ -1029,7 +1029,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.hakura.FaceXD;
 				PRODUCT_NAME = FaceXD;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				USER_HEADER_SEARCH_PATHS = "$(SRCROOT)/**";
+				USER_HEADER_SEARCH_PATHS = "";
 			};
 			name = Release;
 		};
